@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星课程直播录播下载助手
 // @namespace    https://newes.chaoxing.com/
-// @version      0.4.5
+// @version      0.4.6
 // @description  下载教师录像、PPT录像、学生全景、字幕VTT和清洗字幕。
 // @author       Codex
 // @match        http://newes.chaoxing.com/*
@@ -233,9 +233,9 @@
         p.id = ID; p.setAttribute("data-has-videos", vs.length ? "1" : "0"); full = !!vs.length;
         p.style.cssText = "position:fixed;right:8px;top:60px;z-index:2147483647;width:230px;padding:4px;box-sizing:border-box;border:1px solid #999;background:#fff;color:#000;font:12px sans-serif";
         p.innerHTML = '<div style="font-weight:bold;margin-bottom:3px">录播下载</div>';
-        vs.forEach(function (x) { var name = file(x.suffix); addBtn(p, x.label, x.url, function () { download(x.url, name); }, true, name); });
         addBtn(p, "字幕 VTT", vtt, function () { download(vtt, file("subtitle.vtt")); }, true, file("subtitle.vtt"));
         addBtn(p, "字幕 TXT", vtt, function () { subtitleTxt(vtt, file("subtitle.txt")); }, false, file("subtitle.vtt"));
+        vs.forEach(function (x) { var name = file(x.suffix); addBtn(p, x.label, x.url, function () { download(x.url, name); }, true, name); });
         var r = p.appendChild(document.createElement("button"));
         r.type = "button"; r.textContent = "刷新识别"; r.style.cssText = "margin-top:4px;font-size:12px";
         r.addEventListener("click", function () { full = false; p.remove(); setTimeout(render, 200); });
