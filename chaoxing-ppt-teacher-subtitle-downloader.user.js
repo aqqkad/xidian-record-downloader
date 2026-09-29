@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星课程直播录播下载助手
 // @namespace    https://newes.chaoxing.com/
-// @version      0.6.2
+// @version      0.6.3
 // @description  下载教师录像、PPT录像、学生全景、字幕VTT和清洗字幕，并批量下载本周课程TXT字幕。
 // @author       Codex
 // @match        http://newes.chaoxing.com/*
@@ -322,8 +322,10 @@
       var liveId = param("liveId") || scriptVal("liveId"), fid = scriptVal("fid"), uid = scriptVal("uId");
       xhrForm(location.origin + appPath("/live/listSignleCourse"), { liveId: liveId, fid: fid, uId: uid }, function (raw) {
         var list; try { list = JSON.parse(raw) || []; } catch (e) { list = []; }
+        list.sort(function (a, z) { return Number((a.startTime || {}).time || 0) - Number((z.startTime || {}).time || 0) || Number(a.jie || 0) - Number(z.jie || 0); });
+        var counts = {};
+        list.forEach(function (x) { var k = x.courseId || x.courseName || "course"; x.__courseIndex = counts[k] = (counts[k] || 0) + 1; });
         var jobs = list.filter(function (x) { return x && String(x.status) === "2" && x.id && Number(x.days) >= from && Number(x.days) <= to; });
-        jobs.sort(function (a, z) { return Number((a.startTime || {}).time || 0) - Number((z.startTime || {}).time || 0) || Number(a.jie || 0) - Number(z.jie || 0); });
         if (!jobs.length) { s.textContent = range ? "第 " + from + "-" + to + " 周没有可下载的回放字幕" : "本课程没有可下载的回放字幕"; b.disabled = input.disabled = false; return; }
         var i = 0, ok = 0, skipped = 0, failed = [], seenSubs = {}, seenVtts = {};
         function next() {
@@ -331,7 +333,7 @@
             s.textContent = "完成：已下载 " + ok + " 个字幕" + (skipped ? "；跳过重复 " + skipped + " 个" : "") + (failed.length ? "；失败：" + failed.join("、") : "");
             b.disabled = input.disabled = false; return;
           }
-          var x = jobs[i++], title = cleanName([x.courseName, "第" + x.jie + "节", "第" + x.days + "周"].join("-"));
+          var x = jobs[i++], title = cleanName([x.courseName, "第" + x.__courseIndex + "节", "第" + x.days + "周"].join("-"));
           s.textContent = "处理中 " + i + "/" + jobs.length + "：" + title;
           var page = location.origin + appPath("/live/viewNewCourseLive1") + "?isStudent=1&liveId=" + encodeURIComponent(x.id);
           xhrText(page, function (html) {
