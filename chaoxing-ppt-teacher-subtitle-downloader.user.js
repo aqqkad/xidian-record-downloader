@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         超星课程直播录播下载助手
 // @namespace    https://newes.chaoxing.com/
-// @version      0.4.6
-// @description  下载教师录像、PPT录像、学生全景、字幕VTT和清洗字幕。
+// @version      0.6.2
+// @description  下载教师录像、PPT录像、学生全景、字幕VTT和清洗字幕，并批量下载本周课程TXT字幕。
 // @author       Codex
 // @match        http://newes.chaoxing.com/*
 // @match        https://newes.chaoxing.com/*
+// @match        https://newesxidian.chaoxing.com/*
 // @run-at       document-end
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
@@ -194,6 +195,165 @@
       .catch(function () { toast("字幕处理失败，已改为下载原 VTT"); download(u, name.replace(/\.txt$/i, ".vtt")); });
   }
 
+  function xhrText(u, done) {
+    if (typeof GM_xmlhttpRequest === "function") return GM_xmlhttpRequest({ method: "GET", url: u, responseType: "text", timeout: 30000, anonymous: false,
+      headers: { "X-Requested-With": "XMLHttpRequest", "Referer": location.href },
+      onload: function (r) {
+        if (r.status >= 200 && r.status < 300) return done(r.responseText || r.response || "");
+        var lm = String(r.responseHeaders || "").match(/^location:\s*(.+)$/im);
+        if (lm && lm[1]) { try { var nu = new URL(lm[1].trim(), u).href; if (nu !== u) return xhrText(nu, done); } catch (e) {} }
+        done("");
+      }, onerror: function () { done(""); }, ontimeout: function () { done(""); } });
+    fetch(u, { credentials: "include" }).then(function (r) { return r.ok ? r.text() : ""; }).then(done).catch(function () { done(""); });
+  }
+  function xhrForm(u, data, done) {
+    if (typeof GM_xmlhttpRequest === "function") return GM_xmlhttpRequest({ method: "POST", url: u, data: enc(data), responseType: "text", timeout: 30000, anonymous: false,
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "X-Requested-With": "XMLHttpRequest", "Referer": location.href },
+      onload: function (r) { done(r.status >= 200 && r.status < 300 ? (r.responseText || r.response || "") : ""); },
+      onerror: function () { done(""); }, ontimeout: function () { done(""); } });
+    fetch(u, { method: "POST", credentials: "include", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: enc(data) })
+      .then(function (r) { return r.ok ? r.text() : ""; }).then(done).catch(function () { done(""); });
+  }
+  function appPath(path) { return (/^\/xidianpj\//.test(location.pathname) ? "/xidianpj" : "") + path; }
+  function courseHost() {
+    var f = q("iframe[src*='frontLive'],iframe[src*='studentSelectCourse']");
+    try { if (f && f.src) return new URL(f.src).origin; } catch (e) {}
+    return /newesxidian\.chaoxing\.com/.test(location.hostname) ? location.origin : "https://newesxidian.chaoxing.com";
+  }
+  function scheduleVal(key, fallback) {
+    var text = Array.prototype.map.call(document.scripts, function (s) { return s.textContent || ""; }).join("\n");
+    var m = text.match(new RegExp('(?:["\\\']?' + key + '["\\\']?\\s*[:=]\\s*["\\\']?)(\\d+)'));
+    return m ? m[1] : fallback;
+  }
+  function scheduleWeek() {
+    var m = (q(".w_pull_time") || {}).textContent;
+    m = String(m || "").match(/(\d+)/);
+    if (m) return m[1];
+    var text = Array.prototype.map.call(document.scripts, function (s) { return s.textContent || ""; }).join("\n");
+    return (text.match(/getWeekDetail\(['"](\d+)/) || [])[1] || "1";
+  }
+  function scheduleSubtitleUrl(html, host) {
+    var m = String(html || "").match(/(?:workDetailId=|workDetailId["']?\s*[:=]\s*["']?)(\d+)/i);
+    var subHost = /newesxidian\.chaoxing\.com/i.test(host) ? "http://newes.chaoxing.com" : host;
+    return m ? subHost + "/xidianpj/smartSupervisor/getVideoSubtitles2Vtt?workDetailId=" + encodeURIComponent(m[1]) : "";
+  }
+  function resolveSubtitle(html, host, done, depth) {
+    depth = depth || 0;
+    var direct = scheduleSubtitleUrl(html, host);
+    if (direct || depth > 2) return done(direct);
+    var srcs = [], re = /(?:src|url)\s*[=:]\s*["']([^"']+)["']/ig, m;
+    while ((m = re.exec(String(html || "")))) if (/playVideo|viewFrame|workDetail|subtitle/i.test(m[1])) srcs.push(m[1]);
+    (function next(i) {
+      if (i >= srcs.length) return done("");
+      var u; try { u = new URL(srcs[i], host).href; } catch (e) { return next(i + 1); }
+      xhrText(u, function (child) { resolveSubtitle(child, host, function (found) { found ? done(found) : next(i + 1); }, depth + 1); });
+    })(0);
+  }
+  function batchPanel() {
+    if (q("#cx-week-batch")) return;
+    var p = document.body.appendChild(document.createElement("div")); p.id = "cx-week-batch";
+    p.style.cssText = "position:fixed;right:8px;top:60px;z-index:2147483647;width:245px;padding:7px;box-sizing:border-box;border:1px solid #999;background:#fff;color:#000;font:12px sans-serif;box-shadow:0 1px 5px #999";
+    p.innerHTML = '<div style="font-weight:bold;margin-bottom:5px">本周课程字幕</div><button type="button" style="font-size:12px">批量下载本周字幕 TXT</button><div style="margin-top:5px;color:#555;white-space:normal;word-break:break-all"></div>';
+    var b = p.querySelector("button"), s = p.querySelector("div:last-child");
+    b.addEventListener("click", function () {
+      b.disabled = true; var host = courseHost(), week = scheduleWeek();
+      var params = { fid: scheduleVal("fid", ""), userId: scheduleVal("userId", scheduleVal("uId", "")), week: week,
+        termYear: scheduleVal("termYear", new Date().getFullYear()), termId: scheduleVal("termId", "1"), type: "1" };
+      var all = [];
+      function loadWeek(w) {
+        params.week = w; s.textContent = "正在读取第 " + w + "/" + week + " 周课程...";
+        xhrText(host + "/frontLive/listStudentCourseLivePage?" + enc(params), function (raw) {
+          var list; try { list = JSON.parse(raw) || []; } catch (e) { list = []; }
+          list.forEach(function (x) { x.__week = w; all.push(x); });
+          w < Number(week) ? loadWeek(w + 1) : prepare();
+        });
+      }
+      function prepare() {
+        all.sort(function (a, b) { return Number((a.startTime || {}).time || 0) - Number((b.startTime || {}).time || 0) || Number(a.jie || 0) - Number(b.jie || 0); });
+        var counts = {};
+        all.forEach(function (x) { var k = x.courseId || x.courseName || "course"; x.__courseIndex = counts[k] = (counts[k] || 0) + 1; });
+        var jobs = all.filter(function (x) { return Number(x.__week) === Number(week) && String(x.status) === "2" && x.id; });
+        if (!jobs.length) { s.textContent = "本周没有可下载的回放字幕"; b.disabled = false; return; }
+        var i = 0, ok = 0, skipped = 0, failed = [], seenSubs = {}, seenVtts = {};
+        function next() {
+          if (i >= jobs.length) {
+            s.textContent = "完成：已下载 " + ok + " 个字幕" + (skipped ? "；跳过重复 " + skipped + " 个" : "") + (failed.length ? "；失败：" + failed.join("、") : "");
+            b.disabled = false; return;
+          }
+          var x = jobs[i++], title = cleanName([x.courseName, "第" + x.__courseIndex + "节", "第" + week + "周"].join("-"));
+          s.textContent = "处理中 " + i + "/" + jobs.length + "：" + title;
+          var recordHost = "http://newes.chaoxing.com", page = recordHost + "/xidianpj/live/viewNewCourseLive1?isStudent=1&liveId=" + encodeURIComponent(x.id);
+          xhrText(page, function (html) {
+            resolveSubtitle(html, recordHost, function (su) {
+            if (!su) { failed.push(title); return next(); }
+            if (seenSubs[su]) { skipped++; return next(); }
+            seenSubs[su] = 1;
+            xhrText(su, function (vtt) {
+              if (vtt && /WEBVTT|-->/.test(vtt)) {
+                if (seenVtts[vtt]) { skipped++; return next(); }
+                seenVtts[vtt] = 1; textDl(cleanVtt(vtt), title + ".txt"); ok++;
+              }
+              else failed.push(title);
+              next();
+            });
+            });
+          });
+        }
+        next();
+      }
+      loadWeek(1);
+    });
+  }
+
+  function courseBatchPanel() {
+    if (q("#cx-course-batch")) return;
+    var p = document.body.appendChild(document.createElement("div")); p.id = "cx-course-batch";
+    p.style.cssText = "position:fixed;right:8px;top:330px;z-index:2147483647;width:245px;padding:7px;box-sizing:border-box;border:1px solid #999;background:#fff;color:#000;font:12px sans-serif;box-shadow:0 1px 5px #999";
+    p.innerHTML = '<div style="font-weight:bold;margin-bottom:5px">本课程字幕</div><div style="display:flex;align-items:center;gap:5px;margin-bottom:5px"><label for="cx-course-weeks">周次</label><input id="cx-course-weeks" type="text" placeholder="如 2-5，留空为全部" style="width:155px;box-sizing:border-box;font-size:12px;padding:2px 4px"></div><button type="button" style="font-size:12px">下载课程字幕 TXT</button><div class="cx-course-status" style="margin-top:5px;color:#555;white-space:normal;word-break:break-all"></div>';
+    var b = p.querySelector("button"), input = q("#cx-course-weeks", p), s = q(".cx-course-status", p);
+    b.addEventListener("click", function () {
+      var range = String(input.value || "").trim(), from = 0, to = Infinity, rm;
+      if (range) {
+        rm = range.match(/^(\d+)\s*-\s*(\d+)$/);
+        if (!rm || Number(rm[1]) < 1 || Number(rm[1]) > Number(rm[2])) { s.textContent = "周次格式错误，请输入如 2-5"; return; }
+        from = Number(rm[1]); to = Number(rm[2]);
+      }
+      b.disabled = input.disabled = true; s.textContent = "正在读取课程课时...";
+      var liveId = param("liveId") || scriptVal("liveId"), fid = scriptVal("fid"), uid = scriptVal("uId");
+      xhrForm(location.origin + appPath("/live/listSignleCourse"), { liveId: liveId, fid: fid, uId: uid }, function (raw) {
+        var list; try { list = JSON.parse(raw) || []; } catch (e) { list = []; }
+        var jobs = list.filter(function (x) { return x && String(x.status) === "2" && x.id && Number(x.days) >= from && Number(x.days) <= to; });
+        jobs.sort(function (a, z) { return Number((a.startTime || {}).time || 0) - Number((z.startTime || {}).time || 0) || Number(a.jie || 0) - Number(z.jie || 0); });
+        if (!jobs.length) { s.textContent = range ? "第 " + from + "-" + to + " 周没有可下载的回放字幕" : "本课程没有可下载的回放字幕"; b.disabled = input.disabled = false; return; }
+        var i = 0, ok = 0, skipped = 0, failed = [], seenSubs = {}, seenVtts = {};
+        function next() {
+          if (i >= jobs.length) {
+            s.textContent = "完成：已下载 " + ok + " 个字幕" + (skipped ? "；跳过重复 " + skipped + " 个" : "") + (failed.length ? "；失败：" + failed.join("、") : "");
+            b.disabled = input.disabled = false; return;
+          }
+          var x = jobs[i++], title = cleanName([x.courseName, "第" + x.jie + "节", "第" + x.days + "周"].join("-"));
+          s.textContent = "处理中 " + i + "/" + jobs.length + "：" + title;
+          var page = location.origin + appPath("/live/viewNewCourseLive1") + "?isStudent=1&liveId=" + encodeURIComponent(x.id);
+          xhrText(page, function (html) {
+            resolveSubtitle(html, location.origin, function (su) {
+              if (!su) { failed.push(title); return next(); }
+              if (seenSubs[su]) { skipped++; return next(); }
+              seenSubs[su] = 1;
+              xhrText(su, function (vtt) {
+                if (vtt && /WEBVTT|-->/.test(vtt)) {
+                  if (seenVtts[vtt]) { skipped++; return next(); }
+                  seenVtts[vtt] = 1; textDl(cleanVtt(vtt), title + ".txt"); ok++;
+                } else failed.push(title);
+                next();
+              });
+            });
+          });
+        }
+        next();
+      });
+    });
+  }
+
   function headerSize(h) {
     var m = String(h || "").match(/^content-length:\s*(\d+)/im) || String(h || "").match(/^content-range:\s*bytes\s+\d+-\d+\/(\d+)/im);
     return m ? Number(m[1]) : 0;
@@ -244,7 +404,9 @@
     });
   }
   function boot() {
-    if (window.top !== window.self) return;
+    if (window.top !== window.self && !/studentSelectCourse1/.test(location.href)) return;
+    if (/studentSelectCourse1/.test(location.href)) batchPanel();
+    if (/\/live\/viewNewCourseLive1/.test(location.pathname)) courseBatchPanel();
     render(); setTimeout(render, 1200); setTimeout(render, 3000);
     var f = q("#viewFrame");
     if (f) f.addEventListener("load", function () {

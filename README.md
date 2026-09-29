@@ -1,14 +1,38 @@
 # 超星课程录播下载助手
 
-用于超星课程录播页面的 Tampermonkey 脚本，可辅助提取教师录像、PPT 录像、学生全景、VTT 字幕和清洗后的字幕文本。
+用于西安电子科技大学超星课程录播页面的 Tampermonkey 脚本，可下载教师录像、PPT 录像、学生全景、VTT 字幕和清洗后的 TXT 字幕。
 
-## 文件
+## 功能
 
-- `chaoxing-ppt-teacher-subtitle-downloader.user.js`：油猴脚本。
+- 下载当前录播的教师录像、PPT 录像和学生全景。
+- 下载当前录播的原始 VTT 字幕或清洗后的 TXT 字幕。
+- 在本周课程表页面批量下载当前周的 TXT 字幕。
+- 在课程页面下载该课程全部已有字幕。
+- 支持输入 `2-5` 这样的周次范围，只下载指定周次。
+- 按 `课程名-第X节-第Y周.txt` 命名课程字幕。
+- 对相同字幕地址和相同字幕内容去重，并显示失败项目。
 
-## 用法
+## 安装
 
 1. 安装 Tampermonkey。
-2. 新建脚本并粘贴 `chaoxing-ppt-teacher-subtitle-downloader.user.js`。
-3. 打开匹配的 `newes.chaoxing.com` 录播页面。
-4. 使用页面中注入的下载面板。
+2. 打开 `chaoxing-ppt-teacher-subtitle-downloader.user.js` 的 Raw 页面。
+3. 在 Tampermonkey 中确认安装或更新。
+
+## 使用
+
+### 当前录播
+
+打开匹配的 `newes.chaoxing.com` 录播页面，使用右侧“录播下载”面板。
+
+### 本周课程
+
+进入 `newesxidian.chaoxing.com/frontLive/studentSelectCourse1` 课程表页面，切换到目标周后，点击“批量下载本周字幕 TXT”。
+
+### 整门课程
+
+进入课程回放页面，使用“本课程字幕”面板：
+
+- 周次留空：处理该课程全部已有回放字幕。
+- 输入如 `2-5`：只处理第 2 周至第 5 周。
+
+浏览器首次批量下载时，可能会询问是否允许该站点下载多个文件，请选择允许。
